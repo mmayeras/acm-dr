@@ -1,0 +1,16 @@
+# Continuous passive restore: warm standby. Keeps restoring HUB1's newer backups, managed clusters
+# NOT activated. Stays Enabled. Activate later by setting veleroManagedClustersBackupName: latest.
+# Used in 05a (continuous flavour) and 08-failback.md (turn HUB2 back into a standby).
+# Fields explained: REFERENCE.md > "Restore spec, field by field".
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Restore
+metadata:
+  name: restore-acm-passive-sync
+  namespace: open-cluster-management-backup
+spec:
+  syncRestoreWithNewBackups: true            # keep restoring newer backups (needs latest/latest/skip)
+  restoreSyncInterval: 10m                   # check the bucket every 10 minutes (default 30m)
+  cleanupBeforeRestore: CleanupRestored      # remove previously restored objects gone from the new backup
+  veleroManagedClustersBackupName: skip      # no ManagedCluster restored: clusters stay on HUB1
+  veleroCredentialsBackupName: latest        # newest acm-credentials-schedule backup
+  veleroResourcesBackupName: latest          # newest acm-resources + acm-resources-generic backups

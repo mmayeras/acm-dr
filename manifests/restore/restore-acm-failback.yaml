@@ -1,0 +1,14 @@
+# Failback restore, applied on HUB1 with a backup taken on HUB2 (ACM 2.17 doc 1.1.43).
+# HUB1 is not empty: CleanupRestored removes HUB1 objects that carry velero.io/backup-name
+# (added by restore-acm in module 4) but are NOT in HUB2's backup.
+# Fields explained: REFERENCE.md > "Restore spec, field by field".
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Restore
+metadata:
+  name: restore-acm-failback
+  namespace: open-cluster-management-backup
+spec:
+  cleanupBeforeRestore: CleanupRestored      # remove labeled objects absent from HUB2's backup
+  veleroManagedClustersBackupName: latest    # activation: HUB1 takes the clusters back
+  veleroCredentialsBackupName: latest        # newest acm-credentials-schedule backup (from HUB2)
+  veleroResourcesBackupName: latest          # newest acm-resources + acm-resources-generic backups

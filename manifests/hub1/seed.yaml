@@ -1,0 +1,103 @@
+# Lab test data created on HUB1 before the first backup.
+# Each object answers one question after restore on HUB2:
+#   ManagedClusterSet / Binding / Placement -> cluster-scoped + namespaced ACM objects come back
+#   Policy dr-lab-marker                     -> governance comes back AND drives the spoke
+#   ConfigMap dr-lab-labeled                 -> user objects with the backup label come back
+#   ConfigMap dr-lab-unlabeled               -> user objects WITHOUT the label do NOT come back
+# Provider credential secret is created in the lab steps (kept out of git).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dr-lab
+---
+apiVersion: cluster.open-cluster-management.io/v1beta2
+kind: ManagedClusterSet
+metadata:
+  name: dr-lab
+---
+apiVersion: cluster.open-cluster-management.io/v1beta2
+kind: ManagedClusterSetBinding
+metadata:
+  name: dr-lab
+  namespace: dr-lab
+spec:
+  clusterSet: dr-lab
+---
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata:
+  name: dr-lab-placement
+  namespace: dr-lab
+spec:
+  clusterSets:
+    - dr-lab
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: dr-lab-marker
+  namespace: dr-lab
+  annotations:
+    policy.open-cluster-management.io/standards: NIST SP 800-53
+    policy.open-cluster-management.io/categories: CM Configuration Management
+    policy.open-cluster-management.io/controls: CM-2 Baseline Configuration
+spec:
+  disabled: false
+  remediationAction: enforce
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: dr-lab-marker
+        spec:
+          remediationAction: enforce
+          severity: low
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: dr-lab-canary
+            - complianceType: mustonlyhave
+              objectDefinition:
+                apiVersion: v1
+                kind: ConfigMap
+                metadata:
+                  name: dr-lab-marker
+                  namespace: dr-lab-canary
+                data:
+                  managed-by-hub: hub1
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: dr-lab-marker
+  namespace: dr-lab
+placementRef:
+  apiGroup: cluster.open-cluster-management.io
+  kind: Placement
+  name: dr-lab-placement
+subjects:
+  - apiGroup: policy.open-cluster-management.io
+    kind: Policy
+    name: dr-lab-marker
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dr-lab-labeled
+  namespace: dr-lab
+  labels:
+    cluster.open-cluster-management.io/backup: ""
+data:
+  note: "has the backup label, expected on HUB2 after restore"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dr-lab-unlabeled
+  namespace: dr-lab
+data:
+  note: "no backup label, expected MISSING on HUB2 after restore"

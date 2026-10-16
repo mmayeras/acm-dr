@@ -1,0 +1,16 @@
+# Restore used by the "keep primary hub active" procedure (ACM 2.17 doc 1.1.35 / 1.1.36).
+# Same object is applied on BOTH hubs, for different reasons:
+#   - on HUB1 (primary): tags every backed-up hub resource with velero.io/backup-name,
+#     so a later CleanupRestored restore (failback) knows what it may delete.
+#   - on HUB2 (new hub): restores credentials + resources + managed clusters (active scenario).
+# Fields explained: REFERENCE.md > "Restore spec, field by field".
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Restore
+metadata:
+  name: restore-acm
+  namespace: open-cluster-management-backup
+spec:
+  cleanupBeforeRestore: None                 # delete nothing: HUB2 is a brand-new hub
+  veleroManagedClustersBackupName: latest    # activation: this hub takes the clusters
+  veleroCredentialsBackupName: latest        # newest acm-credentials-schedule backup
+  veleroResourcesBackupName: latest          # newest acm-resources + acm-resources-generic backups

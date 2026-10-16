@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ACM Hub DR Flow</title>
+<link rel="stylesheet" href="https://noyitz.github.io/flowstory/templates/style.css">
+</head>
+<body>
+
+<button class="fs-theme-toggle" id="fs-theme">&#9790;</button>
+<div style="position:fixed;bottom:6px;left:220px;z-index:1000;max-width:820px;font:11px/1.35 system-ui,sans-serif;color:#c9d1d9;background:rgba(13,17,23,.9);border:1px solid #30363d;border-radius:6px;padding:8px 10px">
+<b>Acronyms</b><br>
+ACM: Advanced Cluster Management &middot; MSA: ManagedServiceAccount &middot; SNO: Single Node OpenShift &middot; OADP: OpenShift API for Data Protection &middot; RPO: Recovery Point Objective &middot; S3: Amazon Simple Storage Service (object storage protocol) &middot; API: Application Programming Interface &middot; MCE: MultiClusterEngine &middot; URL: Uniform Resource Locator &middot; RBAC: role-based access control &middot; DNS: Domain Name System &middot; CSR: certificate signing request &middot; HUB1 / HUB2: old / new hub &middot; SPOKE: managed cluster
+</div>
+<a href="../" style="position:fixed;bottom:12px;right:16px;z-index:1000;font:13px system-ui,sans-serif;color:#79c0ff;background:rgba(13,17,23,.85);border:1px solid #30363d;border-radius:6px;padding:6px 10px;text-decoration:none">&#8592; Lab guide (README)</a>
+
+<div class="fs-brand" id="fs-brand"></div>
+<div class="fs-title" id="fs-title"></div>
+
+<div class="fs-panel">
+  <div class="fs-flow-bar">
+    <select id="fs-flow-select"></select>
+    <button class="fs-start" id="fs-play">&#9654; Start</button>
+    <button id="fs-speed">1x</button>
+    <button id="fs-loop" style="border-color:#79c0ff;color:#79c0ff">&#8635; Loop</button>
+    <button class="fs-reset" id="fs-reset">Reset</button>
+  </div>
+  <div class="fs-steps" id="fs-steps">
+    <div class="fs-steps-title">Flow Steps <span style="font-weight:400;font-size:11px;color:var(--fs-text-dim)">· click to jump · click a box for details</span></div>
+    <div id="fs-steps-container"></div>
+  </div>
+  <div class="fs-inspector" id="fs-inspector">
+    <div class="fs-inspector-title" id="fs-inspector-title" style="color:var(--fs-accent)">State</div>
+    <div id="fs-inspector-content"></div>
+  </div>
+</div>
+
+<div id="fs-highlight-box" style="display:none;position:fixed;z-index:350;border-radius:10px;pointer-events:none"></div>
+<div id="fs-overlay" style="display:none;position:fixed;top:0;left:0;right:380px;bottom:0;z-index:300;background:rgba(0,0,0,0.6)">
+  <div id="fs-overlay-card" style="position:absolute;background:#161b22ee;border:1px solid #30363d;border-radius:14px;max-width:420px;padding:22px 26px;box-shadow:0 12px 40px rgba(0,0,0,0.5)">
+    <button id="fs-overlay-close" style="position:absolute;top:10px;right:14px;background:none;border:none;color:#8b949e;font-size:18px;cursor:pointer;padding:4px 8px;border-radius:6px">✕</button>
+    <div id="fs-overlay-accent" style="width:4px;height:24px;border-radius:2px;position:absolute;left:0;top:22px"></div>
+    <h2 id="fs-overlay-title" style="margin:0 0 6px;font-size:18px;color:#c9d1d9;font-family:system-ui"></h2>
+    <p id="fs-overlay-desc" style="margin:0 0 14px;font-size:13px;color:#8b949e;line-height:1.5;font-family:system-ui"></p>
+    <div id="fs-overlay-details" style="font-size:12px;font-family:'SF Mono',Menlo,monospace"></div>
+    <button id="fs-overlay-resume" style="margin-top:14px;padding:7px 20px;border:1px solid #3fb950;border-radius:8px;background:transparent;color:#3fb950;font-size:13px;cursor:pointer;font-family:system-ui">&#9654; Resume Flow</button>
+  </div>
+</div>
+
+<div class="fs-legend" id="fs-legend"></div>
+
+<canvas id="fs-canvas"></canvas>
+
+<script type="module">
+import { FlowStory } from 'https://noyitz.github.io/flowstory/src/index.js';
+
+const BLUE = '#58a6ff', GREEN = '#3fb950', ORANGE = '#f0883e', RED = '#f85149',
+      PURPLE = '#d2a8ff', GRAY = '#8b949e', LBLUE = '#79c0ff';
+
+// ---------- State panel ----------
+// Each flow starts from a baseline; each listed step patches it. Changed lines are
+// highlighted (green), values starting with "!" are shown as errors (red).
+const STATE_KEYS = {
+  headers: [['srv', 'spoke bootstrap -> '], ['mc1', 'HUB1 spoke1: '], ['mc2', 'HUB2 spoke1: ']],
+  body: [['sched', 'HUB1 BackupSchedule: '], ['tok', 'MSA token (HUB1): '], ['bkp', 'token in last backup: '], ['imp', 'HUB2 auto-import: ']]
+};
+const lines = (part, st, changed) => STATE_KEYS[part].map(([k, p]) => {
+  const v = String(st[k]); const err = v.startsWith('!');
+  return { value: p + (err ? v.slice(1) : v), id: 's-' + k, style: err ? 'err' : (changed.includes(k) ? 'add' : 'keep') };
+});
+function flowStates(base, patches) {
+  let st = { ...base };
+  const out = [{ step: 1, label: 'Starting point', phase: 'request', replaceHeaders: lines('headers', st, []), replaceBody: lines('body', st, []) }];
+  for (const [step, phase, patch] of patches) {
+    st = { ...st, ...patch };
+    const m = { step, phase, replaceHeaders: lines('headers', st, Object.keys(patch)), replaceBody: lines('body', st, Object.keys(patch)) };
+    const i = out.findIndex(x => x.step === step);
+    if (i >= 0) out[i] = { ...out[i], ...m }; else out.push(m);
+  }
+  return out;
+}
+function buildInspector() {
+  const fresh = { srv: 'HUB1', mc1: 'Available', mc2: 'hub not installed yet', sched: 'none', tok: 'none', bkp: 'no', imp: '-' };
+  const ready = { ...fresh, mc2: 'absent', sched: 'Enabled', tok: 'present', bkp: 'yes' };
+  const switching = { ...ready, sched: 'Paused', mc1: 'Available, disable-auto-import' };
+  return {
+    initialState: { phase: 'request', headers: lines('headers', fresh, []), body: lines('body', fresh, []), cycleState: [] },
+    mutations: {
+      backup: flowStates(fresh, [
+        [1, 'request', { sched: 'Enabled' }],
+        [2, 'request', { tok: 'MSA created, token pending' }],
+        [5, 'response', { tok: 'present' }],
+        [6, 'request', { bkp: 'backup running' }],
+        [8, 'response', { bkp: 'yes' }]
+      ]),
+      prepare: flowStates({ ...ready, mc2: 'no ACM restore yet' }, [
+        [1, 'request', { sched: 'Paused (no more writes)' }],
+        [2, 'request', { mc1: 'Available (tagged backup-name)' }],
+        [3, 'request', { mc1: 'Available, disable-auto-import' }]
+      ]),
+      restore: flowStates(switching, [
+        [5, 'request', { mc2: 'Pending Import' }],
+        [6, 'request', { imp: 'token restored' }],
+        [7, 'request', { imp: 'auto-import-secret created' }],
+        [9, 'request', { imp: 'calling SPOKE API' }],
+        [10, 'response', { srv: 'HUB2' }],
+        [12, 'response', { mc2: 'Joined' }],
+        [14, 'response', { mc2: 'Joined, Available', imp: 'done, secret deleted' }],
+        [15, 'response', { mc1: 'Unknown, disable-auto-import' }]
+      ]),
+      noToken: flowStates({ ...switching, bkp: 'no' }, [
+        [3, 'request', { mc2: 'Pending Import' }],
+        [4, 'error', { imp: '!no valid token' }],
+        [6, 'error', { imp: '!HUB2 -> SPOKE :6443 timeout' }],
+        [7, 'error', { mc2: '!Pending Import (stuck)' }],
+        [9, 'response', { imp: 'manual auto-import-secret' }]
+      ]),
+      passive: flowStates({ ...ready, mc2: 'absent' }, [
+        [4, 'request', { mc2: 'absent (never restored)' }],
+        [5, 'request', { imp: 'nothing to import' }],
+        [7, 'response', { srv: 'HUB1 (unchanged)' }],
+        [9, 'response', { mc1: 'Available (managed by HUB1)', sched: 'Enabled (HUB1 keeps writing)' }]
+      ]),
+      passiveSync: flowStates({ ...ready, mc2: 'absent' }, [
+        [1, 'request', { mc2: 'absent (sync Enabled)' }],
+        [5, 'response', { mc2: 'absent (data refreshed)' }],
+        [6, 'response', { imp: 'never (managed clusters skipped)' }],
+        [7, 'response', { srv: 'HUB1 (unchanged)' }],
+        [8, 'response', { mc1: 'Available (managed by HUB1)' }]
+      ]),
+      activate: flowStates({ ...ready, mc2: 'absent (passive)' }, [
+        [1, 'request', { sched: 'Paused', mc1: 'Available, disable-auto-import' }],
+        [4, 'request', { mc2: 'Pending Import' }],
+        [6, 'request', { imp: 'auto-import-secret created' }],
+        [7, 'request', { imp: 'calling the spoke' }],
+        [8, 'response', { srv: 'HUB2' }],
+        [9, 'response', { mc2: 'Joined' }],
+        [10, 'response', { mc2: 'Joined, Available', imp: 'done, secret deleted' }],
+        [11, 'response', { mc1: 'Unknown, disable-auto-import' }]
+      ])
+    }
+  };
+}
+
+const diagram = {
+  meta: { title: 'Hub backup and restore', author: 'acm-dr lab' },
+  canvas: { width: 1250, height: 1000 },
+
+  nodes: {
+    // ---------- HUB1 ----------
+    hub1:      { type: 'boundary', x: 20, y: 40, w: 640, h: 360, label: 'HUB1 - primary, stays up', color: BLUE, labelAlign: 'left' },
+    bkpCtrl1:  { x: 50,  y: 90,  w: 190, h: 60, label: 'Backup controller', sublabel: 'cluster-backup component', color: GRAY, fontSize: 14 },
+    bsched:    { x: 50,  y: 180, w: 190, h: 60, label: 'BackupSchedule', sublabel: 'schedule-acm-msa  MSA=true', color: BLUE, fontSize: 14 },
+    msa1:      { x: 270, y: 90,  w: 200, h: 60, label: 'ManagedServiceAccount', sublabel: 'spoke1/auto-import-account', color: ORANGE, fontSize: 14 },
+    tok1:      { x: 270, y: 180, w: 200, h: 60, label: 'Secret (MSA token)', sublabel: 'spoke1/auto-import-account', color: GREEN, fontSize: 14 },
+    mc1:       { x: 270, y: 290, w: 200, h: 60, label: 'ManagedCluster spoke1', sublabel: 'Available', color: BLUE, fontSize: 14 },
+    velero1:   { x: 500, y: 90,  w: 140, h: 60, label: 'Velero (OADP)', sublabel: 'writes backups', color: PURPLE, fontSize: 14 },
+    hubapi1:   { x: 500, y: 340, w: 140, h: 55, label: 'HUB1 API :6443', sublabel: 'agents connect here', color: BLUE, fontSize: 14 },
+
+    // ---------- Bucket ----------
+    s3:        { x: 420, y: 440, w: 220, h: 60, label: 'S3 bucket', sublabel: 'acm-*-schedule-<timestamp>', color: PURPLE, fontSize: 14 },
+
+    // ---------- HUB2 ----------
+    hub2:      { type: 'boundary', x: 20, y: 540, w: 640, h: 420, label: 'HUB2 - new SNO hub', color: GREEN, labelAlign: 'left' },
+    restore:   { x: 50,  y: 580, w: 190, h: 60, label: 'Restore', sublabel: 'clusters: latest=move, skip=stay', color: BLUE, fontSize: 14 },
+    restoreCtrl:{ x: 270, y: 580, w: 200, h: 60, label: 'Restore controller', sublabel: 'cluster-backup component', color: GRAY, fontSize: 14 },
+    velero2:   { x: 500, y: 580, w: 140, h: 60, label: 'Velero (OADP)', sublabel: 'reads backups', color: PURPLE, fontSize: 14 },
+    tok2:      { x: 50,  y: 690, w: 190, h: 60, label: 'Secret (MSA token)', sublabel: 'restored from backup', color: GREEN, fontSize: 14 },
+    mc2:       { x: 270, y: 690, w: 200, h: 60, label: 'ManagedCluster spoke1', sublabel: 'only when clusters are restored', color: BLUE, fontSize: 14 },
+    hubData2:  { x: 500, y: 690, w: 140, h: 60, label: 'Hub data', sublabel: 'policies, creds...', color: LBLUE, fontSize: 14 },
+    autoSecret:{ x: 50,  y: 790, w: 190, h: 60, label: 'auto-import-secret', sublabel: 'created by restore ctrl', color: ORANGE, fontSize: 14 },
+    importCtrl:{ x: 270, y: 790, w: 200, h: 60, label: 'Import controller', sublabel: 'multicluster-engine', color: GRAY, fontSize: 14 },
+    hubapi2:   { x: 500, y: 880, w: 140, h: 55, label: 'HUB2 API :6443', sublabel: 'agents connect here', color: GREEN, fontSize: 14 },
+
+    // ---------- SPOKE ----------
+    spoke:     { type: 'boundary', x: 760, y: 230, w: 470, h: 380, label: 'SPOKE (spoke1)', color: ORANGE, labelAlign: 'left' },
+    apiSpoke:  { x: 790,  y: 280, w: 190, h: 60, label: 'SPOKE API :6443', sublabel: 'auto-import calls here', color: ORANGE, fontSize: 14 },
+    msaAgent:  { x: 1010, y: 280, w: 200, h: 60, label: 'MSA add-on agent', sublabel: 'agent-addon namespace', color: GRAY, fontSize: 14 },
+    bootstrap: { x: 790,  y: 400, w: 190, h: 60, label: 'bootstrap-hub-kubeconfig', sublabel: 'server: hub to register with', color: ORANGE, fontSize: 13 },
+    saSpoke:   { x: 1010, y: 400, w: 200, h: 60, label: 'ServiceAccount', sublabel: 'RBAC: bootstrap secret only', color: ORANGE, fontSize: 14 },
+    klusterlet:{ x: 790,  y: 520, w: 190, h: 60, label: 'Klusterlet', sublabel: 'registration agent', color: BLUE, fontSize: 14 },
+    hubKcfg:   { x: 1010, y: 520, w: 200, h: 60, label: 'hub-kubeconfig-secret', sublabel: 'live hub credentials', color: BLUE, fontSize: 13 }
+  },
+
+  flows: {
+    backup: {
+      label: '1. Backup on HUB1 (all scenarios)',
+      steps: [
+        { text: 'You create BackupSchedule schedule-acm-msa with useManagedServiceAccount: true (module 2)', mode: 'arrow', from: 'bsched', to: 'bkpCtrl1', color: BLUE, num: 1 },
+        { text: 'Backup controller creates ManagedServiceAccount auto-import-account in the cluster namespace spoke1 (one per imported cluster)', mode: 'arrow', from: 'bkpCtrl1', to: 'msa1', color: BLUE, num: 2 },
+        { text: 'MSA add-on delivers it to the agent on the spoke', mode: 'arrow', from: 'msa1', to: 'msaAgent', color: ORANGE, num: 3,
+          fromTop: true, toTop: true, toXOff: 40, waypoints: [{ x: 370, y: 65 }, { x: 1150, y: 65 }] },
+        { text: 'Agent creates ServiceAccount auto-import-account. Its RBAC only allows get/update of bootstrap-hub-kubeconfig: not cluster-admin', mode: 'arrow', from: 'msaAgent', to: 'saSpoke', color: ORANGE, num: 4 },
+        { text: 'Token is sent back to the hub: Secret spoke1/auto-import-account, carrying the backup label', mode: 'arrow', from: 'msaAgent', to: 'tok1', color: GREEN, num: 5,
+          fromTop: true, fromXOff: -40, toRight: true, waypoints: [{ x: 1070, y: 210 }, { x: 700, y: 210 }] },
+        { text: 'Next acm-managed-clusters-schedule backup picks up the token Secret...', mode: 'arrow', from: 'tok1', to: 'velero1', color: PURPLE, num: 6 },
+        { text: '...together with ManagedCluster spoke1 (activation data)', mode: 'arrow', from: 'mc1', to: 'velero1', color: PURPLE, num: 7,
+          fromRight: true, toBottom: true, toXOff: -50, waypoints: [{ x: 520, y: 320 }] },
+        { text: 'Velero uploads the backup to the shared bucket', mode: 'arrow', from: 'velero1', to: 's3', color: PURPLE, num: 8 },
+        { text: 'Check: this backup must be NEWER than the token Secret, or it cannot auto-import (module 2 step 5)', mode: 'lightup', target: 's3', badge: '!' }
+      ]
+    },
+
+    prepare: {
+      label: '4. Prepare HUB1 before any cluster import',
+      steps: [
+        { text: 'Only when clusters will be imported (flows 5 and 6), never for a passive hub. Pause BackupSchedule (paused: true): velero schedules are kept with paused=true, HUB1 stops writing. Last backup = your RPO', mode: 'lightup', target: 'bsched', badge: 'II', errColor: ORANGE },
+        { text: 'Restore restore-acm on HUB1 itself: tags HUB1 objects with velero.io/backup-name (needed for a clean CleanupRestored failback)', mode: 'lightup', target: 'bkpCtrl1', badge: 'tag', errColor: LBLUE },
+        { text: 'Annotate import.open-cluster-management.io/disable-auto-import on spoke1: HUB1 will never try to re-import it', mode: 'lightup', target: 'mc1', badge: 'off', errColor: ORANGE },
+        { text: 'Annotation is added AFTER the last backup on purpose: it must not travel to HUB2', mode: 'lightup', target: 's3', badge: '!' }
+      ]
+    },
+
+    restore: {
+      label: '5. Active: restore with cluster import, spoke moves',
+      steps: [
+        { text: 'After flow 4: oc apply restore-acm on HUB2: credentials, resources AND managed clusters = latest (module 5)', mode: 'arrow', from: 'restore', to: 'restoreCtrl', color: BLUE, num: 1 },
+        { text: 'Restore controller creates one velero Restore per backup group', mode: 'arrow', from: 'restoreCtrl', to: 'velero2', color: BLUE, num: 2 },
+        { text: 'Velero reads the HUB1 backups from the bucket', mode: 'arrow', from: 's3', to: 'velero2', color: PURPLE, num: 3 },
+        { text: 'Passive data restored: credentials group, then resources group (policies, placements, cluster sets) and resources-generic group (any object labeled cluster.open-cluster-management.io/backup)', mode: 'arrow', from: 'velero2', to: 'hubData2', color: PURPLE, num: 4 },
+        { text: 'Activation data restored: ManagedCluster spoke1 appears, status Pending Import', mode: 'arrow', from: 'velero2', to: 'mc2', color: PURPLE, num: 5, fromBottom: true, fromXOff: -25, toRight: true },
+        { text: 'MSA token Secret restored in namespace spoke1', mode: 'arrow', from: 'velero2', to: 'tok2', color: PURPLE, num: 6,
+          fromBottom: true, fromXOff: -55, toTop: true, waypoints: [{ x: 515, y: 665 }, { x: 145, y: 665 }] },
+        { text: 'Restore controller sees Pending Import + a valid token: creates auto-import-secret', mode: 'arrow', from: 'tok2', to: 'autoSecret', color: ORANGE, num: 7 },
+        { text: 'Import controller picks up auto-import-secret', mode: 'arrow', from: 'autoSecret', to: 'importCtrl', color: ORANGE, num: 8 },
+        { text: 'HUB2 calls the SPOKE API on :6443 with the token (this is why HUB2 -> SPOKE must be open)', mode: 'arrow', from: 'importCtrl', to: 'apiSpoke', color: ORANGE, num: 9,
+          fromRight: true, toLeft: true, waypoints: [{ x: 700, y: 820 }, { x: 700, y: 310 }] },
+        { text: 'bootstrap-hub-kubeconfig rewritten: server = HUB2 API', mode: 'arrow', from: 'apiSpoke', to: 'bootstrap', color: ORANGE, num: 10 },
+        { text: 'Klusterlet detects the new bootstrap kubeconfig and re-bootstraps', mode: 'arrow', from: 'bootstrap', to: 'klusterlet', color: BLUE, num: 11 },
+        { text: 'Klusterlet registers on HUB2 (CSR, lease): SPOKE -> HUB2 :6443', mode: 'arrow', from: 'klusterlet', to: 'hubapi2', color: GREEN, num: 12,
+          fromLeft: true, toRight: true, waypoints: [{ x: 725, y: 550 }, { x: 725, y: 907 }] },
+        { text: 'hub-kubeconfig-secret now holds HUB2 credentials', mode: 'arrow', from: 'klusterlet', to: 'hubKcfg', color: GREEN, num: 13 },
+        { text: 'spoke1 JOINED + AVAILABLE on HUB2. auto-import-secret is deleted', mode: 'lightup', target: 'mc2', badge: 'OK', errColor: GREEN },
+        { text: 'On HUB1, spoke1 goes Unknown (lease no longer renewed). HUB1 is still up for everything else', mode: 'lightup', target: 'mc1', badge: '?', errColor: GRAY }
+      ]
+    },
+
+    noToken: {
+      label: '7. Troubleshoot: stuck in Pending Import',
+      steps: [
+        { text: 'Restore with cluster import on HUB2 (flow 5 or 6)', mode: 'arrow', from: 'restore', to: 'restoreCtrl', color: BLUE, num: 1 },
+        { text: 'Velero reads the backups', mode: 'arrow', from: 's3', to: 'velero2', color: PURPLE, num: 2 },
+        { text: 'ManagedCluster spoke1 restored: Pending Import', mode: 'arrow', from: 'velero2', to: 'mc2', color: PURPLE, num: 3, fromBottom: true, fromXOff: -50, toRight: true },
+        { text: 'Cause A: no valid token. Backup older than the token, token expired (> 2 x veleroTtl), or useManagedServiceAccount was false', mode: 'lightup', target: 'tok2', badge: 'X', errColor: RED },
+        { text: 'So no auto-import-secret is created', mode: 'lightup', target: 'autoSecret', badge: 'X', errColor: RED },
+        { text: 'Cause B: token is fine but HUB2 cannot reach SPOKE :6443 (firewall, DNS): import controller times out', mode: 'arrow', from: 'importCtrl', to: 'apiSpoke', color: RED, num: 6,
+          fromRight: true, toLeft: true, waypoints: [{ x: 700, y: 820 }, { x: 700, y: 310 }] },
+        { text: 'spoke1 stays Pending Import on HUB2. bootstrap-hub-kubeconfig was never rewritten, so the klusterlet still reports to HUB1 (still Available there)', mode: 'lightup', target: 'mc2', badge: 'X', errColor: RED },
+        { text: 'Meanwhile the klusterlet keeps reporting to the HUB1 API: spoke1 still Available on HUB1', mode: 'arrow', from: 'klusterlet', to: 'hubapi1', color: GREEN, num: 8,
+          fromLeft: true, toRight: true, waypoints: [{ x: 745, y: 550 }, { x: 745, y: 367 }] },
+        { text: 'Fix the cause (module 2 step 5 for the token, firewall for :6443), or import the cluster manually (product doc: Importing a managed cluster)', mode: 'lightup', target: 'autoSecret', badge: 'fix', errColor: ORANGE }
+      ]
+    },
+
+    passive: {
+      label: '2. Passive, one-shot: no cluster import, spoke stays',
+      steps: [
+        { text: 'oc apply restore-acm-passive: credentials + resources = latest, veleroManagedClustersBackupName: skip, cleanup None (module 5a)', mode: 'arrow', from: 'restore', to: 'restoreCtrl', color: BLUE, num: 1 },
+        { text: 'Velero reads only the credentials + resources backups. The managed-clusters backup stays in the bucket, unused', mode: 'arrow', from: 's3', to: 'velero2', color: PURPLE, num: 2 },
+        { text: 'Hub data restored on HUB2: policies, placements, cluster sets, credentials', mode: 'arrow', from: 'velero2', to: 'hubData2', color: PURPLE, num: 3 },
+        { text: 'No ManagedCluster restored: HUB2 has no record of spoke1, no MSA token, no auto-import-secret', mode: 'lightup', target: 'mc2', badge: '-', errColor: GRAY },
+        { text: 'Import controller has nothing to import: HUB2 never contacts the spoke API', mode: 'lightup', target: 'importCtrl', badge: '-', errColor: GRAY },
+        { text: 'Policies exist on HUB2, but their placement selects no cluster: HUB2 cannot push anything to the spoke', mode: 'lightup', target: 'hubData2', badge: '0', errColor: GRAY },
+        { text: 'bootstrap-hub-kubeconfig untouched: still points to HUB1', mode: 'lightup', target: 'bootstrap', badge: 'HUB1', errColor: GREEN },
+        { text: 'Klusterlet keeps reporting to the HUB1 API: hub-kubeconfig-secret unchanged', mode: 'arrow', from: 'klusterlet', to: 'hubapi1', color: GREEN, num: 8,
+          fromLeft: true, toRight: true, waypoints: [{ x: 745, y: 550 }, { x: 745, y: 367 }] },
+        { text: 'spoke1 stays Available on HUB1. HUB1 keeps managing it and keeps backing up. No disable-auto-import annotation', mode: 'lightup', target: 'mc1', badge: 'OK', errColor: GREEN },
+        { text: 'Restore ends in Finished and never reads newer backups: a point-in-time copy. For newer data, delete and re-apply it, or use flow 3', mode: 'lightup', target: 'restore', badge: 'end', errColor: GRAY }
+      ]
+    },
+    passiveSync: {
+      label: '3. Passive, continuous: no cluster import, spoke stays',
+      steps: [
+        { text: 'oc apply restore-acm-passive-sync: syncRestoreWithNewBackups: true, restoreSyncInterval: 10m, managed clusters skip, cleanup CleanupRestored (module 5a)', mode: 'arrow', from: 'restore', to: 'restoreCtrl', color: BLUE, num: 1 },
+        { text: 'HUB1 keeps backing up: a change made on HUB1 reaches the bucket at its next backup', mode: 'arrow', from: 'velero1', to: 's3', color: PURPLE, num: 2 },
+        { text: 'Every restoreSyncInterval, the restore controller looks for newer backups and starts new velero restores', mode: 'arrow', from: 'restoreCtrl', to: 'velero2', color: BLUE, num: 3 },
+        { text: 'Velero reads the newer credentials + resources backups. Managed clusters are skipped every time', mode: 'arrow', from: 's3', to: 'velero2', color: PURPLE, num: 4 },
+        { text: 'Hub data refreshed. CleanupRestored also removes objects deleted on HUB1. Delay = next HUB1 backup + up to one interval: the RPO of a passive hub', mode: 'arrow', from: 'velero2', to: 'hubData2', color: PURPLE, num: 5 },
+        { text: 'Still no ManagedCluster on HUB2 after each sync: nothing to import', mode: 'lightup', target: 'mc2', badge: '-', errColor: GRAY },
+        { text: 'Spoke never touched: bootstrap-hub-kubeconfig unchanged, the klusterlet keeps reporting to the HUB1 API', mode: 'arrow', from: 'klusterlet', to: 'hubapi1', color: GREEN, num: 7,
+          fromLeft: true, toRight: true, waypoints: [{ x: 745, y: 550 }, { x: 745, y: 367 }] },
+        { text: 'spoke1 stays Available on HUB1, the only hub managing it. HUB2 is a warm standby, ready for flow 6', mode: 'lightup', target: 'mc1', badge: 'OK', errColor: GREEN },
+        { text: 'Restore stays Enabled. Do not edit restored objects on HUB2: the next sync can overwrite or remove them', mode: 'lightup', target: 'restore', badge: 'sync', errColor: BLUE }
+      ]
+    },
+    activate: {
+      label: '6. Active after passive: import clusters, spoke moves',
+      steps: [
+        { text: 'Freeze HUB1 first (flow 4, module 4): pause the schedule, tagging restore, disable-auto-import on spoke1', mode: 'lightup', target: 'bsched', badge: 'II', errColor: ORANGE },
+        { text: 'Once HUB2 has restored HUB1\'s last backup: set veleroManagedClustersBackupName: latest (patch the continuous restore, or apply restore-acm-activate after a one-shot)', mode: 'lightup', target: 'restore', badge: 'go', errColor: BLUE },
+        { text: 'Velero now reads the managed-clusters backup', mode: 'arrow', from: 's3', to: 'velero2', color: PURPLE, num: 3 },
+        { text: 'ManagedCluster spoke1 restored on HUB2: Pending Import', mode: 'arrow', from: 'velero2', to: 'mc2', color: PURPLE, num: 4, fromBottom: true, fromXOff: -25, toRight: true },
+        { text: 'MSA token Secret restored in namespace spoke1', mode: 'arrow', from: 'velero2', to: 'tok2', color: PURPLE, num: 5,
+          fromBottom: true, fromXOff: -55, toTop: true, waypoints: [{ x: 515, y: 665 }, { x: 145, y: 665 }] },
+        { text: 'Restore controller creates auto-import-secret from the token', mode: 'arrow', from: 'tok2', to: 'autoSecret', color: ORANGE, num: 6 },
+        { text: 'Import controller calls the spoke API on :6443 with the token', mode: 'arrow', from: 'importCtrl', to: 'apiSpoke', color: ORANGE, num: 7,
+          fromRight: true, toLeft: true, waypoints: [{ x: 700, y: 820 }, { x: 700, y: 310 }] },
+        { text: 'bootstrap-hub-kubeconfig rewritten: server = HUB2', mode: 'arrow', from: 'apiSpoke', to: 'bootstrap', color: ORANGE, num: 8 },
+        { text: 'Klusterlet re-registers on HUB2', mode: 'arrow', from: 'klusterlet', to: 'hubapi2', color: GREEN, num: 9,
+          fromLeft: true, toRight: true, waypoints: [{ x: 725, y: 550 }, { x: 725, y: 907 }] },
+        { text: 'spoke1 Joined + Available on HUB2', mode: 'lightup', target: 'mc2', badge: 'OK', errColor: GREEN },
+        { text: 'spoke1 Unknown on HUB1. Continue with module 6 (validate)', mode: 'lightup', target: 'mc1', badge: '?', errColor: GRAY }
+      ]
+    }
+  },
+
+  inspector: buildInspector(),
+
+  flowOrder: ['backup', 'passive', 'passiveSync', 'prepare', 'restore', 'activate', 'noToken'],
+  defaultFlow: 'backup',
+
+  tooltips: {
+    bsched: { title: 'BackupSchedule', description: 'Creates the velero Schedules. useManagedServiceAccount: true turns on the MSA token for every imported cluster. paused: true keeps the velero Schedules (paused=true): no new backups, old ones kept.',
+      details: [['Name', 'schedule-acm-msa'], ['Cron', '0 */1 * * *'], ['veleroTtl', '120h'], ['Check', 'scripts/hub-status.sh $HUB1']] },
+    msa1: { title: 'ManagedServiceAccount', description: 'MCE add-on object: the hub declares it, the add-on creates the ServiceAccount on the managed cluster and returns its token to the hub.',
+      details: [['Kind', 'ManagedServiceAccount'], ['Namespace', 'spoke1 (cluster ns)'], ['Requires', 'MCE component managedserviceaccount'], ['oc', 'oc get managedserviceaccount -n spoke1']] },
+    tok1: { title: 'MSA token Secret', description: 'Token of the spoke ServiceAccount, stored on the hub with the backup label so it is part of the managed-clusters backup.',
+      details: [['Validity', '2 x veleroTtl (240h here)'], ['Override', 'managedServiceAccountTTL (doc: leave unset)'], ['oc', 'oc get secret -n spoke1 auto-import-account']] },
+    saSpoke: { title: 'Spoke ServiceAccount', description: 'Least privilege: the token can only get/update the bootstrap-hub-kubeconfig secret. Enough to redirect the klusterlet, nothing more.' },
+    s3: { title: 'Shared bucket', description: 'Both hubs point their DataProtectionApplication at the same bucket + prefix. Only one hub may write at a time (else BackupCollision).',
+      details: [['Groups', 'credentials, resources, resources-generic (labeled objects), managed-clusters, validation-policy'], ['List', 'labs3 ls s3://$S3_BUCKET/$S3_PREFIX/backups/']] },
+    restore: { title: 'Restore', description: 'One object, one velero restore per backup group. veleroManagedClustersBackupName is the activation switch: latest moves the clusters to this hub, skip keeps a passive copy. Full reference: REFERENCE.md, Restore spec field by field.',
+      details: [['veleroCredentialsBackupName', 'latest | skip | <backup name>'], ['veleroResourcesBackupName', 'latest | skip | <backup name> (resources + resources-generic)'], ['veleroManagedClustersBackupName', 'latest = activate, skip = passive'], ['cleanupBeforeRestore', 'None (empty hub) | CleanupRestored (hub holds restored data)'], ['syncRestoreWithNewBackups', 'true = keep restoring newer backups (passive only)'], ['restoreSyncInterval', 'check interval, 10m here (default 30m)']] },
+    autoSecret: { title: 'auto-import-secret', description: 'Created by the restore controller when a cluster is Pending Import and a valid MSA token exists. Consumed and deleted by the import controller.',
+      details: [['Manual', 'oc create secret generic auto-import-secret -n spoke1 --from-literal=autoImportRetry=5 --from-literal=server=... --from-literal=token=...']] },
+    importCtrl: { title: 'Import controller', description: 'MCE managedcluster-import-controller. Uses the token to call the spoke API and rewrite bootstrap-hub-kubeconfig. ACM 2.14+ default autoImportStrategy ImportOnly: a cluster already known to this hub is not re-imported (fresh HUB2: fine).',
+      details: [['Logs', 'oc logs -n multicluster-engine deploy/managedcluster-import-controller-v2']] },
+    bootstrap: { title: 'bootstrap-hub-kubeconfig', description: 'Tells the klusterlet which hub to register with. Rewriting its server URL is what moves the cluster.',
+      details: [['oc', "oc get secret bootstrap-hub-kubeconfig -n open-cluster-management-agent -o jsonpath='{.data.kubeconfig}' | base64 -d | grep server"]] },
+    mc1: { title: 'ManagedCluster on HUB1', description: 'After the switch: Unknown. disable-auto-import keeps HUB1 from pulling it back. Module 7 deletes it (check Hive preserveOnDelete first). Passive path: stays Available, never delete it.' },
+    hubData2: { title: 'Hub data on HUB2', description: 'Passive data restored from the credentials, resources and resources-generic groups. Plain objects come only if labeled cluster.open-cluster-management.io/backup.' },
+    mc2: { title: 'ManagedCluster on HUB2', description: 'Restored from acm-managed-clusters-schedule. Pending Import until the klusterlet registers, then Joined + Available.' }
+  },
+
+  legend: [
+    { label: 'Control / request', color: BLUE },
+    { label: 'Backup data (velero)', color: PURPLE },
+    { label: 'Token / HUB -> SPOKE', color: ORANGE },
+    { label: 'Return / registration', color: GREEN },
+    { label: 'Failure', color: RED }
+  ]
+};
+
+const viz = new FlowStory(document.getElementById('fs-canvas'), {
+  stepsContainer: document.getElementById('fs-steps-container'),
+  inspectorTitle: document.getElementById('fs-inspector-title'),
+  inspectorContent: document.getElementById('fs-inspector-content'),
+  overlay: document.getElementById('fs-overlay'),
+  overlayCard: document.getElementById('fs-overlay-card'),
+  overlayTitle: document.getElementById('fs-overlay-title'),
+  overlayDesc: document.getElementById('fs-overlay-desc'),
+  overlayDetails: document.getElementById('fs-overlay-details'),
+  overlayAccent: document.getElementById('fs-overlay-accent'),
+  overlayClose: document.getElementById('fs-overlay-close'),
+  overlayResume: document.getElementById('fs-overlay-resume'),
+  highlightBox: document.getElementById('fs-highlight-box'),
+  brand: document.getElementById('fs-brand'),
+  title: document.getElementById('fs-title'),
+  legend: document.getElementById('fs-legend'),
+  flowSelect: document.getElementById('fs-flow-select'),
+  playBtn: document.getElementById('fs-play'),
+  speedBtn: document.getElementById('fs-speed'),
+  loopBtn: document.getElementById('fs-loop'),
+  resetBtn: document.getElementById('fs-reset'),
+  themeBtn: document.getElementById('fs-theme'),
+});
+
+window.__flowstory = viz;
+
+try {
+  await viz.load(diagram);
+  viz.state.loopMode = true;
+  const loopBtn = document.getElementById('fs-loop');
+  if (loopBtn) {
+    loopBtn.textContent = '⟳ Loop ON';
+    loopBtn.style.borderColor = '#3fb950';
+    loopBtn.style.color = '#3fb950';
+  }
+  viz.play();
+} catch (e) {
+  console.error('FlowStory load error:', e);
+  document.body.innerHTML = `<div style="padding:40px;color:#f85149;font-family:monospace"><h2>FlowStory Load Error</h2><pre>${e.message}\n\n${e.stack || ''}</pre></div>`;
+}
+</script>
+</body>
+</html>

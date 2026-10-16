@@ -1,0 +1,14 @@
+# One-shot passive restore: hub data only, NO managed clusters, nothing is imported on this hub.
+# Ends in Finished and never reads newer backups. For a standby that follows HUB1, use
+# restore-acm-passive-sync.yaml.
+# Fields explained: REFERENCE.md > "Restore spec, field by field".
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Restore
+metadata:
+  name: restore-acm-passive
+  namespace: open-cluster-management-backup
+spec:
+  cleanupBeforeRestore: None                 # delete nothing: only adds data
+  veleroManagedClustersBackupName: skip      # no ManagedCluster restored: clusters stay on HUB1
+  veleroCredentialsBackupName: latest        # newest acm-credentials-schedule backup
+  veleroResourcesBackupName: latest          # newest acm-resources + acm-resources-generic backups

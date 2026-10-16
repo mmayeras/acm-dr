@@ -1,0 +1,14 @@
+# Activation after a one-shot passive restore (doc example restore-acm-passive-activate).
+# Credentials and resources are already on the hub, so only managed clusters are restored.
+# Create it only after the passive restore is deleted (one active restore at a time).
+# Fields explained: REFERENCE.md > "Restore spec, field by field".
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Restore
+metadata:
+  name: restore-acm-activate
+  namespace: open-cluster-management-backup
+spec:
+  cleanupBeforeRestore: CleanupRestored      # hub already holds restored data
+  veleroManagedClustersBackupName: latest    # activation: this hub takes the clusters
+  veleroCredentialsBackupName: skip          # already restored by the passive restore
+  veleroResourcesBackupName: skip            # already restored by the passive restore

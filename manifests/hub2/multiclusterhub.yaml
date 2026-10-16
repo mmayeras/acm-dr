@@ -1,0 +1,14 @@
+# MultiClusterHub for a single-node hub.
+# availabilityConfig: Basic -> one replica per component (fits SNO).
+# cluster-backup enabled at creation -> OADP is installed in open-cluster-management-backup.
+apiVersion: operator.open-cluster-management.io/v1
+kind: MultiClusterHub
+metadata:
+  name: multiclusterhub
+  namespace: open-cluster-management
+spec:
+  availabilityConfig: Basic
+  overrides:
+    components:
+      - name: cluster-backup
+        enabled: true
