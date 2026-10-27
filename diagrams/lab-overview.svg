@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="840" viewBox="0 0 1400 840">
+  <defs>
+    <marker id="a-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#0969da"/></marker>
+    <marker id="a-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8250df"/></marker>
+    <marker id="a-grey" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#57606a"/></marker>
+    <style>
+      text { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; fill: #1f2328; }
+      .mono { font-family: Menlo, 'SF Mono', Consolas, monospace; font-size: 14px; fill: #424a53; }
+      .title { font-size: 30px; font-weight: 700; }
+      .sub { font-size: 17px; fill: #57606a; }
+      .name { font-size: 26px; font-weight: 700; }
+      .role { font-size: 15px; fill: #57606a; }
+      .item { font-size: 16px; }
+      .lbl { font-size: 16px; font-weight: 700; }
+      .lbl2 { font-size: 14px; fill: #57606a; }
+      .num { font-size: 15px; font-weight: 700; fill: #ffffff; }
+      .leg { font-size: 16px; }
+    </style>
+  </defs>
+
+  <rect width="1400" height="840" fill="#ffffff"/>
+
+  <!-- Header -->
+  <text x="60" y="64" class="title">What the lab does</text>
+  <text x="60" y="96" class="sub">HUB1 backs up to a bucket, HUB2 restores from it, and the spoke can move to HUB2.</text>
+
+  <!-- HUB1 -->
+  <rect x="60" y="150" width="320" height="210" rx="14" fill="#ddf4ff" stroke="#0969da" stroke-width="2"/>
+  <text x="90" y="192" class="name" fill="#0969da">HUB1</text>
+  <text x="90" y="216" class="role">existing ACM hub, stays up</text>
+  <text x="90" y="256" class="item">ACM 2.17</text>
+  <text x="90" y="282" class="item">OADP (Velero)</text>
+  <text x="90" y="308" class="mono">BackupSchedule</text>
+  <text x="90" y="334" class="role">the only hub writing to the bucket</text>
+
+  <!-- Bucket (cylinder) -->
+  <path d="M540,185 L540,335 A160,22 0 0,0 860,335 L860,185" fill="#fff8c5" stroke="#bf8700" stroke-width="2"/>
+  <ellipse cx="700" cy="185" rx="160" ry="22" fill="#fff1a8" stroke="#bf8700" stroke-width="2"/>
+  <text x="700" y="234" class="name" text-anchor="middle" fill="#7d4e00">S3 bucket</text>
+  <text x="700" y="258" class="role" text-anchor="middle">one bucket, one prefix, shared</text>
+  <text x="700" y="290" class="item" text-anchor="middle">credentials, hub resources,</text>
+  <text x="700" y="314" class="item" text-anchor="middle">managed clusters + MSA tokens</text>
+
+  <!-- HUB2 -->
+  <rect x="1020" y="150" width="320" height="210" rx="14" fill="#fbefff" stroke="#8250df" stroke-width="2"/>
+  <text x="1050" y="192" class="name" fill="#8250df">HUB2</text>
+  <text x="1050" y="216" class="role">new, empty ACM hub (a single node)</text>
+  <text x="1050" y="256" class="item">ACM 2.17, same version</text>
+  <text x="1050" y="282" class="item">OADP (Velero), same bucket</text>
+  <text x="1050" y="308" class="mono">Restore</text>
+  <text x="1050" y="334" class="role">reads the bucket, never writes it</text>
+
+  <!-- 1: HUB1 -> bucket -->
+  <line x1="384" y1="260" x2="532" y2="260" stroke="#0969da" stroke-width="3" marker-end="url(#a-blue)"/>
+  <circle cx="400" cy="226" r="13" fill="#0969da"/><text x="400" y="231" class="num" text-anchor="middle">1</text>
+  <text x="420" y="231" class="lbl">backup</text>
+  <text x="400" y="290" class="lbl2">every hour</text>
+
+  <!-- 2: bucket -> HUB2 -->
+  <line x1="864" y1="260" x2="1012" y2="260" stroke="#8250df" stroke-width="3" marker-end="url(#a-purple)"/>
+  <circle cx="880" cy="226" r="13" fill="#8250df"/><text x="880" y="231" class="num" text-anchor="middle">2</text>
+  <text x="900" y="231" class="lbl">restore</text>
+  <text x="880" y="290" class="lbl2">once, or continuous</text>
+
+  <!-- SPOKE -->
+  <rect x="540" y="560" width="320" height="150" rx="14" fill="#dafbe1" stroke="#1a7f37" stroke-width="2"/>
+  <text x="570" y="602" class="name" fill="#1a7f37">SPOKE</text>
+  <text x="570" y="626" class="role">managed cluster, keeps running</text>
+  <text x="570" y="662" class="item">klusterlet agent: hub address in</text>
+  <text x="570" y="686" class="mono">bootstrap-hub-kubeconfig</text>
+
+  <!-- HUB1 manages spoke today -->
+  <path d="M220,364 L220,620 L532,620" fill="none" stroke="#57606a" stroke-width="3" marker-end="url(#a-grey)"/>
+  <text x="240" y="590" class="lbl">manages today</text>
+  <text x="240" y="610" class="lbl2">(and after a passive restore)</text>
+
+  <!-- HUB2 manages spoke after move -->
+  <path d="M1180,364 L1180,620 L868,620" fill="none" stroke="#8250df" stroke-width="3" stroke-dasharray="10 7" marker-end="url(#a-purple)"/>
+  <circle cx="900" cy="560" r="13" fill="#8250df"/><text x="900" y="565" class="num" text-anchor="middle">3</text>
+  <text x="920" y="565" class="lbl">manages after the move</text>
+  <text x="920" y="586" class="lbl2">active scenario only</text>
+  <text x="920" y="606" class="lbl2">needs port 6443 both ways</text>
+
+  <!-- Legend -->
+  <line x1="60" y1="748" x2="1340" y2="748" stroke="#d0d7de" stroke-width="1"/>
+  <text x="60" y="784" class="leg"><tspan font-weight="700">Passive</tspan> (steps 1 and 2): HUB2 gets HUB1's setup (policies, placements, credentials). The spoke stays on HUB1.</text>
+  <text x="60" y="812" class="leg"><tspan font-weight="700">Active</tspan> (steps 1, 2 and 3): HUB2 also gets the clusters. HUB2 rewrites the spoke's hub address, the spoke moves.</text>
+</svg>

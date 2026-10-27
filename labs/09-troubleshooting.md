@@ -121,13 +121,69 @@ If auto-import cannot work, import the cluster manually (doc: "Importing a manag
 
 *Acronyms: ACM = Advanced Cluster Management.*
 
-HUB2, back to a fresh ACM hub (keeps ACM installed):
+HUB2, back to a fresh ACM hub (keeps ACM, OADP, the DPA and `cloud-credentials` installed).
+
+1. Stop restores and backups. Restores go first: a `restore-acm-passive-sync` still `Enabled` brings
+   everything back at its next sync. Deleting a restore never deletes what it restored.
 
 ```bash
 oc --context $HUB2 delete restore.cluster.open-cluster-management.io --all -n $BKP_NS
+oc --context $HUB2 delete restore.velero.io --all -n $BKP_NS
 oc --context $HUB2 delete backupschedule.cluster.open-cluster-management.io --all -n $BKP_NS
-# then delete restored managed clusters (module 7 rules apply!) and the dr-lab namespace
 ```
+
+2. Managed clusters (active scenario only, a passive restore never brings any). Module 7 rules apply,
+   on HUB2 this time:
+
+```bash
+oc --context $HUB2 get managedcluster $SPOKE_NAME
+# AVAILABLE=Unknown   (NOT True)
+```
+
+```bash
+oc --context $HUB1 get managedcluster $SPOKE_NAME
+# AVAILABLE=True      (spoke is back on HUB1, module 8)
+```
+
+```bash
+oc --context $HUB2 get clusterdeployment -A \
+  -o custom-columns=NAME:.metadata.name,PRESERVE:.spec.preserveOnDelete
+# No resources found, or PRESERVE=true on every line
+```
+
+> **Warning:** If the spoke shows `AVAILABLE=True` on HUB2, HUB2 is its only hub: deleting the
+> `ManagedCluster` detaches the spoke (klusterlet removed). Fail back first (module 8). A
+> `ClusterDeployment` with `false` or `<none>` gets deprovisioned: patch it first (module 0).
+
+```bash
+for mc in $(oc --context $HUB2 get managedcluster -o name | grep -v local-cluster); do
+  echo "deleting $mc on HUB2"
+  oc --context $HUB2 delete $mc --wait=false
+done
+oc --context $HUB2 get managedcluster -w
+# only local-cluster left
+```
+
+This also deletes the cluster namespaces on HUB2 and, with the `ManagedCluster`, its clusterset label.
+
+3. Test data restored from HUB1. Deleting namespace `dr-lab` also removes the restored
+   `dr-lab-aws-creds` secret and `dr-lab-from-hub2` (module 8). `dr-lab-unlabeled` was never restored,
+   hence `--ignore-not-found`:
+
+```bash
+oc --context $HUB2 delete -f manifests/hub1/seed.yaml --ignore-not-found
+oc --context $HUB2 wait --for=delete namespace/dr-lab --timeout=5m
+```
+
+4. Nothing restored left. Velero labels every object it restores with `velero.io/restore-name`:
+
+```bash
+oc --context $HUB2 get managedclusterset,managedclustersetbinding,placement,policy,placementbinding,secret,configmap \
+  -A -l velero.io/restore-name
+# No resources found
+```
+
+The synced `Backup` objects stay listed on HUB2 until they expire: see the bucket part below.
 
 HUB1 and spoke, test data:
 

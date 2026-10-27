@@ -15,11 +15,7 @@
 - So the hub **backs itself up** every hour into a bucket (object storage).
 - A **second hub** can read that bucket and rebuild the same setup.
 
-```
-   HUB1 (today's hub) ──backup──▶  bucket  ──restore──▶  HUB2 (new hub)
-          │                                                  ┊
-          └──────────── manages ──▶  SPOKE  ◀┄┄ may manage later
-```
+![HUB1 backs up to an S3 bucket, HUB2 restores from it, and the spoke can move from HUB1 to HUB2](diagrams/lab-overview.png)
 
 The lab names: **HUB1** is the existing hub, **HUB2** the new one, **SPOKE** one managed cluster.
 
